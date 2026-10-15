@@ -100,6 +100,8 @@ It measures the drift of the secondary eclipse relative to
 **Data are not included.** TESS light curves are available from MAST; other inputs
 belong to collaborators and are not distributed here.
 
+---
+
 ## Author
 
 **Victor Oyiboka**  
