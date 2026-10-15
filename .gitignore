@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# raw data, results, and other people's data products: never commit
+*.fits
+*_fits/
+*.zip
+*.pkl
+*.h5
+*.csv
+*.json
+*.bak
+*.bak2
