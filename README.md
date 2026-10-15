@@ -81,14 +81,11 @@ Key measurements:
 - Photodynamical modeling
 
 ---
----
 
 ## Apsidal-Motion Survey Code (`apsidal_survey/`)
 
-Code from a homogeneous eclipse-timing search for apsidal motion in TESS eclipsing binaries
-(Oyiboka & Penev, in preparation). It measures the drift of the secondary eclipse relative to
-the primary, which isolates apsidal motion from effects that shift both eclipses equally,
-such as light-travel time from a third body.
+Code from a eclipse-timing search for apsidal motion in TESS eclipsing binaries.
+It measures the drift of the secondary eclipse relative to
 
 - **`pipeline/`**: the main pipeline. `apsidal_pipeline.py` finds the period (BLS with
   alias checks), refines the ephemeris, fits every primary and secondary eclipse with
@@ -102,6 +99,7 @@ such as light-travel time from a third body.
 
 **Data are not included.** TESS light curves are available from MAST; other inputs
 belong to collaborators and are not distributed here.
+
 ## Author
 
 **Victor Oyiboka**  
