@@ -66,10 +66,54 @@ Key measurements:
 ## Technical Stack
 
 - Python
-- Lightkurve
-- NumPy
-- SciPy
+- Lightkurve, Astropy, Astroquery
+- NumPy, SciPy, pandas
 - Matplotlib
+
+---
+
+## Setup & Usage
+
+### 1. Install
+
+```bash
+git clone https://github.com/ozvick/Tess-eclipse-timing-pipeline.git
+cd Tess-eclipse-timing-pipeline
+pip install -r requirements.txt
+```
+
+### 2. Run the pipeline on any TESS target
+
+`apsidal_survey/pipeline/apsidal_pipeline.py` is the reusable command-line version of the analysis. It takes a folder of SPOC light-curve FITS files (searched recursively for `*_lc.fits`).
+
+Download light curves for a target with Lightkurve:
+
+```python
+import lightkurve as lk
+lk.search_lightcurve("TIC 275423476", mission="TESS", author="SPOC") \
+  .download_all(download_dir="TIC_275423476_fits")
+```
+
+Then run:
+
+```bash
+cd apsidal_survey/pipeline
+python3 apsidal_pipeline.py --tic 275423476 \
+    --data-dir ../../TIC_275423476_fits \
+    --outdir ../../TIC_275423476_out
+```
+
+The script prints a summary (period, ephemeris, O–C fits, diagnostic checks) and saves diagnostic plots to `--outdir`. Run `python3 apsidal_pipeline.py --help` for all options, such as `--period-min` and `--period-max` for the period search range.
+
+To analyze a different system, change the TIC number in both steps.
+
+### 3. Interactive notebook
+
+`notebooks/TESS_ETV_PIPELINE.ipynb` is the step-by-step exploratory version of the analysis. Open it with `jupyter notebook`, and set the target near the top:
+
+```python
+TIC = "TIC 356896561"   # <-- replace with your target
+```
 
 ---
 
@@ -85,7 +129,7 @@ Key measurements:
 ## Apsidal-Motion Survey Code (`apsidal_survey/`)
 
 Code from a eclipse-timing search for apsidal motion in TESS eclipsing binaries.
-It measures the drift of the secondary eclipse relative to
+It measures the drift of the secondary eclipse relative to the primary eclipse.
 
 - **`pipeline/`**: the main pipeline. `apsidal_pipeline.py` finds the period (BLS with
   alias checks), refines the ephemeris, fits every primary and secondary eclipse with
