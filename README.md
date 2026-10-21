@@ -139,7 +139,11 @@ It measures the drift of the secondary eclipse relative to the primary eclipse.
   Prša et al. (2022) TESS EB catalog: period arbitration, re-runs at corrected periods,
   drift comparisons, per-eclipse timing overlays, and summary plots.
 - **`kartof/`**: scripts that run on the group server to summarize the independent
-  timing measurements.
+  timing measurements and extract stellar radii from the light-curve fits.
+- **`consistency/`**: tests whether each detected drift is physically consistent with
+  apsidal motion, by comparing the implied precession rate with tidal and GR expectations.
+- **`retiming/`**: independent eclipse timing with a symmetry (mirror) method, used to
+  cross-check the pipeline's drift measurements.
 
 **Data are not included.** TESS light curves are available from MAST; other inputs
 belong to collaborators and are not distributed here.
