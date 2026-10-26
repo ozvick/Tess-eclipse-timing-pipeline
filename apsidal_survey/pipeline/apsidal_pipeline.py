@@ -588,67 +588,120 @@ def main():
     fig.savefig(os.path.join(outdir, f"TIC{tic}_full_phasefold.png"), dpi=120)
     plt.close(fig)
 
-    # 7. Build templates and fit all eclipses
-    print("\n--- Building templates and fitting all eclipses ---")
-    try:
-        templates = build_eclipse_templates(
-            time, flux, T0, P0,
-            primary_center=0.0, secondary_center=sec_phase_rough,
-            half_width=primary_half_width, nbins=121,
-        )
-    except ValueError:
-        print("Secondary template could not be built (too few points in window) -- "
-              "demoting to no-secondary target (primary-only template).")
-        has_secondary = False
-        from local_eclipse_model import median_bin_template
-        _phase = phase01(time, T0, P0)
-        _local = phase_distance(_phase, 0.0)
-        _m = np.abs(_local) < primary_half_width
-        _prim = median_bin_template(
-            _local[_m], np.asarray(flux)[_m],
-            half_width=primary_half_width, nbins=121,
-        )
-        templates = {"primary": _prim, "secondary": _prim}
-    print(f"Primary template depth:   {templates['primary']['depth']:.4f}")
-    print(f"Secondary template depth: {templates['secondary']['depth']:.4f}")
+    # 7-9. Templates, eclipse fits and refined ephemeris, iterated.
+    # Each eclipse type gets its own measured half-width, fit window and shift
+    # bound. After each pass, templates and fits are redone with the refined
+    # period, epoch and secondary phase, so fit windows are never centred on a
+    # drifting first-pass prediction (this produced fake secondary drifts for
+    # long-period systems with wide secondaries, e.g. TIC 289044378).
+    from local_eclipse_model import median_bin_template
+    WINDOW_FACTOR = 2.0   # template/fit window = WINDOW_FACTOR x eclipse half-width
+    SHIFT_FACTOR = 0.4    # max timing shift = SHIFT_FACTOR x eclipse half-width
+    MAX_PASSES = 6
+    CONVERGED_MIN = 0.5   # stop when predicted eclipse times move less than this [min] ...
+    CONVERGED_FRAC = 0.02 # ... or this fraction of the narrower eclipse half-width, if larger
+    tol_min = CONVERGED_MIN
+    P_first = P0
+    P_use, T0_use, sec_phase_use = P0, T0, sec_phase_rough
+    n_passes, converged_shift = 0, np.nan
+    for n_pass in range(1, MAX_PASSES + 1):
+        n_passes = n_pass
+        print(f"\n--- Pass {n_pass}: templates and eclipse fits with "
+              f"P={P_use:.8f} d, T0={T0_use:.6f} ---")
+        hw_p = measure_eclipse_half_width(time, flux, P_use, T0_use)
+        hw_s = (measure_eclipse_half_width(time, flux, P_use, T0_use + sec_phase_use * P_use)
+                if has_secondary else hw_p)
+        win = {"primary": min(WINDOW_FACTOR * hw_p, 0.2),
+               "secondary": min(WINDOW_FACTOR * hw_s, 0.2)}
+        max_shift = {"primary": SHIFT_FACTOR * hw_p, "secondary": SHIFT_FACTOR * hw_s}
+        print(f"Eclipse half-widths: primary {hw_p:.4f}, secondary {hw_s:.4f} phase "
+              f"(secondary/primary = {hw_s / hw_p:.2f})")
 
-    fits_all = fit_local_eclipses(
-        time, flux, T0, P0, templates,
-        secondary_phase=sec_phase_rough,
-        half_window_phase=primary_half_width,
-        max_shift_phase=primary_half_width * 0.4,
-        min_points=min(max(int(P0 * primary_half_width * 2 * 24 * 60 / 2 * 0.3), 15), 60),
-    )
-    primary_fits = [f for f in fits_all if f["kind"] == "primary"]
-    secondary_fits = [f for f in fits_all if f["kind"] == "secondary"]
-    print(f"Total fits: {len(fits_all)} (primary={len(primary_fits)}, secondary={len(secondary_fits)})")
+        phase_use = phase01(time, T0_use, P_use)
+        templates = {}
+        for kind, center in (("primary", 0.0), ("secondary", sec_phase_use)):
+            local = phase_distance(phase_use, center)
+            m = np.abs(local) < win[kind]
+            try:
+                templates[kind] = median_bin_template(
+                    local[m], np.asarray(flux)[m], half_width=win[kind], nbins=121)
+            except ValueError:
+                templates[kind] = None
+        if templates["primary"] is None:
+            print("\nFATAL: primary eclipse template could not be built.")
+            sys.exit(1)
+        if templates["secondary"] is None:
+            if has_secondary:
+                print("Secondary template could not be built (too few points in window) -- "
+                      "demoting to no-secondary target (primary-only template).")
+            has_secondary = False
+            templates["secondary"] = templates["primary"]
+            win["secondary"], max_shift["secondary"] = win["primary"], max_shift["primary"]
+        print(f"Primary template depth:   {templates['primary']['depth']:.4f}")
+        print(f"Secondary template depth: {templates['secondary']['depth']:.4f}")
 
-    # 8. QC filter (adaptive)
-    print("\n--- QC filter ---")
-    pf_qc, pf_window = qc_filter_adaptive(primary_fits)
-    print(f"Primary: {len(pf_qc)}/{len(primary_fits)} pass QC (window {pf_window})")
-    if has_secondary:
-        sf_qc, sf_window = qc_filter_adaptive(secondary_fits)
-        print(f"Secondary: {len(sf_qc)}/{len(secondary_fits)} pass QC (window {sf_window})")
+        fits_all = fit_local_eclipses(
+            time, flux, T0_use, P_use, templates,
+            secondary_phase=sec_phase_use,
+            half_window_phase=win,
+            max_shift_phase=max_shift,
+            min_points=min(max(int(P_use * win["primary"] * 2 * 24 * 60 / 2 * 0.3), 15), 60),
+        )
+        primary_fits = [f for f in fits_all if f["kind"] == "primary"]
+        secondary_fits = [f for f in fits_all if f["kind"] == "secondary"]
+        print(f"Total fits: {len(fits_all)} (primary={len(primary_fits)}, "
+              f"secondary={len(secondary_fits)})")
+
+        # 8. QC filter (adaptive)
+        pf_qc, pf_window = qc_filter_adaptive(primary_fits)
+        print(f"Primary: {len(pf_qc)}/{len(primary_fits)} pass QC (window {pf_window})")
+        if has_secondary:
+            sf_qc, sf_window = qc_filter_adaptive(secondary_fits)
+            print(f"Secondary: {len(sf_qc)}/{len(secondary_fits)} pass QC (window {sf_window})")
+        else:
+            sf_qc = []
+        if len(pf_qc) < 3:
+            print("\nFATAL: fewer than 3 QC-passed primary eclipses -- cannot proceed.")
+            sys.exit(1)
+
+        # 9. Refined primary ephemeris
+        epochs_p = np.array([f["epoch"] for f in pf_qc])
+        obs_centers_p = np.array([f["obs_center"] for f in pf_qc])
+        times_p = np.array([f["center_time"] for f in pf_qc])
+        coeffs = np.polyfit(epochs_p, obs_centers_p, deg=1)
+        P_refined, T0_refined = coeffs[0], coeffs[1]
+        pred_p = T0_refined + epochs_p * P_refined
+        resid_p_min = (obs_centers_p - pred_p) * 24 * 60
+
+        n_bound_p = int(sum(f["at_bound"] for f in pf_qc))
+        n_bound_s = int(sum(f["at_bound"] for f in sf_qc))
+        if has_secondary and len(sf_qc) >= 3:
+            obs_s = np.array([f["obs_center"] for f in sf_qc])
+            sec_phase_new = float(np.median(((obs_s - T0_refined) / P_refined) % 1.0))
+        else:
+            sec_phase_new = sec_phase_use
+
+        # how far the predicted eclipse times move between passes, over the data span
+        e_lo, e_hi = epochs_p.min() - 1, epochs_p.max() + 1
+        moves = [abs((T0_refined + e * P_refined) - (T0_use + e * P_use)) for e in (e_lo, e_hi)]
+        moves.append(abs(sec_phase_new - sec_phase_use) * P_refined)
+        converged_shift = max(moves) * 24 * 60
+        print(f"Pass {n_pass}: refined P={P_refined:.8f} d; predicted eclipse times move "
+              f"by up to {converged_shift:.2f} min; shift-bound hits: "
+              f"{n_bound_p} primary, {n_bound_s} secondary")
+
+        P_use, T0_use, sec_phase_use = P_refined, T0_refined, sec_phase_new
+        tol_min = max(CONVERGED_MIN, CONVERGED_FRAC * min(hw_p, hw_s) * P_refined * 24 * 60)
+        if n_pass >= 2 and converged_shift < tol_min:
+            break
     else:
-        sf_qc = []
+        print(f"WARNING: ephemeris not converged after {MAX_PASSES} passes "
+              f"(last change {converged_shift:.2f} min)")
 
-    if len(pf_qc) < 3:
-        print("\nFATAL: fewer than 3 QC-passed primary eclipses -- cannot proceed.")
-        sys.exit(1)
-
-    # 9. Refined primary ephemeris
-    print("\n--- Refined primary ephemeris ---")
-    epochs_p = np.array([f["epoch"] for f in pf_qc])
-    obs_centers_p = np.array([f["obs_center"] for f in pf_qc])
-    times_p = np.array([f["center_time"] for f in pf_qc])
-
-    coeffs = np.polyfit(epochs_p, obs_centers_p, deg=1)
-    P_refined, T0_refined = coeffs[0], coeffs[1]
-    pred_p = T0_refined + epochs_p * P_refined
-    resid_p_min = (obs_centers_p - pred_p) * 24 * 60
-
-    print(f"Refined P  = {P_refined:.8f} d")
+    primary_half_width = hw_p
+    secondary_half_width = hw_s
+    print("\n--- Refined primary ephemeris (final pass) ---")
+    print(f"Refined P  = {P_refined:.8f} d   (first-pass P0 = {P_first:.8f} d)")
     print(f"Refined T0 = {T0_refined:.8f} BTJD")
     print(f"Primary O-C: std={np.std(resid_p_min):.4f} min, "
           f"range {resid_p_min.min():.4f} to {resid_p_min.max():.4f} min, n={len(epochs_p)}")
@@ -684,6 +737,15 @@ def main():
         "n_primary_qc": len(pf_qc),
         "has_secondary": has_secondary,
         "period_alias_caveat": alias_caveat,
+        "pipeline_version": 2,
+        "n_passes": n_passes,
+        "converged_shift_min": converged_shift,
+        "converged_tolerance_min": tol_min,
+        "first_pass_period_days": P_first,
+        "primary_half_width_phase": primary_half_width,
+        "secondary_half_width_phase": secondary_half_width,
+        "n_primary_at_shift_bound": n_bound_p,
+        "n_secondary_at_shift_bound": n_bound_s,
     }
 
     # 10. Secondary O-C and apsidal-motion test
@@ -711,7 +773,8 @@ def main():
         print(f"n       = {len(times_s)} secondary eclipses over {times_s.max()-times_s.min():.1f} days")
 
         checks = mechanistic_checks(time, flux, P_refined, T0_refined, sec_phase_final,
-                                     primary_half_width, sf_qc, times_s, oc_min, primary_depth)
+                                     max(primary_half_width, secondary_half_width),
+                                     sf_qc, times_s, oc_min, primary_depth)
         print("\n--- Mechanistic checks ---")
         print(f"Baseline drift: slope={checks['baseline_drift_slope_per_day']:.3e}/day, "
               f"p={checks['baseline_drift_p']:.4g}, "

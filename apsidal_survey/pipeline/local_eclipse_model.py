@@ -171,6 +171,13 @@ def median_bin_template(local_phase, flux, half_width=0.12, nbins=241, min_point
 
     min_index = int(np.nanargmin(bflux_interp))
     min_phase = float(centers[min_index])
+    # Refine the minimum below the bin width with a parabola through the
+    # neighbouring bins, so the template centre does not jump by whole bins.
+    lo_i, hi_i = max(min_index - 5, 0), min(min_index + 6, len(centers))
+    if hi_i - lo_i >= 5:
+        qa, qb, _ = np.polyfit(centers[lo_i:hi_i], bflux_interp[lo_i:hi_i], 2)
+        if qa > 0 and centers[lo_i] <= -qb / (2 * qa) <= centers[hi_i - 1]:
+            min_phase = float(-qb / (2 * qa))
     centered_phase = centers - min_phase
     order = np.argsort(centered_phase)
 
@@ -316,6 +323,8 @@ def fit_single_eclipse(
         "slope": float(result.x[1]),
         "scale": float(result.x[2]),
         "shift_phase": float(result.x[3]),
+        "max_shift_phase": float(max_shift_phase),
+        "at_bound": bool(abs(result.x[3]) > 0.95 * max_shift_phase),
         "rms": rms,
         "n_points": int(np.sum(m)),
         "xphase": x[order],
@@ -342,14 +351,16 @@ def fit_local_eclipses(
         time, epoch, period, secondary_phase=secondary_phase
     ):
         template = templates[kind]
+        hw_kind = half_window_phase[kind] if isinstance(half_window_phase, dict) else half_window_phase
+        ms_kind = max_shift_phase[kind] if isinstance(max_shift_phase, dict) else max_shift_phase
         row = fit_single_eclipse(
             time,
             flux,
             center_time,
             period,
             template,
-            half_window_phase=half_window_phase,
-            max_shift_phase=max_shift_phase,
+            half_window_phase=hw_kind,
+            max_shift_phase=ms_kind,
             min_points=min_points,
         )
         if row is None:
