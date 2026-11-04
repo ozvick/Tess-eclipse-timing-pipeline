@@ -15,3 +15,8 @@ so build the library by hand and replace the shipped one:
     cp libellc.so $(python -c "import os, importlib.util; print(os.path.dirname(importlib.util.find_spec('ellc').origin))")/
 
 Reference: Maxted (2016), A&A 591, A111.
+
+`sim_distortion.py`: tests whether tidally distorted stars (ellc Roche shapes, gravity darkening)
+on circular orbits make a spherical-star eclipse fit report spurious e sin(omega). Options:
+`--R1 --R2` (star radii, Rsun) and `--out`. The spurious e sin(omega) is set mainly by Roche-lobe
+filling (~0.0005 at 30%, ~0.003 at 50%, ~0.017 at 80%, ~0.04 at 90%, radii fixed); e cos(omega) stays zero.
