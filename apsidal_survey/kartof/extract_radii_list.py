@@ -4,9 +4,21 @@ Usage: ~/venv_etv/bin/python ~/extract_radii_list.py ~/need_radii.txt 2>/dev/nul
 """
 import sys, csv, math, logging
 logging.disable(logging.CRITICAL)
+sys.path.insert(0, '/home/victor/stubs')
 sys.path.insert(0, '/home/victor/code')
 sys.path.insert(0, '/home/kpenev/projects/git/TESS_EB_Bayesian/scripts')
-from chain_analysis import get_max_likelihood_params
+import h5py, numpy as np
+from sample_params import SampleParams
+
+
+def get_best(path):
+    """Highest-log-probability sample from an emcee HDF5 file (filled iterations only)."""
+    with h5py.File(path, 'r') as f:
+        g = f['mcmc']
+        n = int(g.attrs['iteration'])
+        lp = g['log_prob'][:n]
+        i, j = np.unravel_index(np.nanargmax(lp), lp.shape)
+        return SampleParams(*np.array(g['blobs'][i, j]))
 from binary import Binary
 
 TICS = [int(x) for x in open(sys.argv[1]).read().split() if x.strip()]
@@ -14,7 +26,7 @@ GM_SUN, R_SUN = 1.32712440018e20, 6.957e8
 rows = []
 for t in TICS:
     try:
-        best = get_max_likelihood_params(f'/mnt/md2/TESS_EBs/first1000/tess{t}_samples.h5')[0]
+        best = get_best(f'/mnt/md2/TESS_EBs/first1000/tess{t}_samples.h5')
         b = Binary(from_mcmc=best)
         P, M, q = b.per, b.mtotal, b.mratio
         a_kep = (GM_SUN * M * (P * 86400) ** 2 / (4 * math.pi ** 2)) ** (1 / 3) / R_SUN
