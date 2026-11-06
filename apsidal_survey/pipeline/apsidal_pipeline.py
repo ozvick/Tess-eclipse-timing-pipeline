@@ -247,7 +247,24 @@ def measure_eclipse_half_width(time, flux, P0, T0, nbins=401, search_half_width=
     below = finite & (med < threshold)
     if not np.any(below):
         return 0.01
-    half_width = np.max(np.abs(bc[below])) * 1.3  # small padding
+    # Sub-bin precision (v2.2): on each side, interpolate between the outermost below-threshold
+    # bin and the next bin outward to where the profile crosses the threshold, then average the
+    # two sides. Removes the one-bin rounding of the width (~0.001 in phase).
+    edges = []
+    for side in (-1, 1):
+        idx = np.where(below & (side * bc > 0))[0]
+        if len(idx) == 0:
+            continue
+        i_in = idx[np.argmax(np.abs(bc[idx]))]
+        i_out = i_in + side
+        if 0 <= i_out < len(bc) and np.isfinite(med[i_out]) and med[i_out] != med[i_in]:
+            frac = min(max((threshold - med[i_in]) / (med[i_out] - med[i_in]), 0.0), 1.0)
+            edges.append(abs(bc[i_in] + frac * (bc[i_out] - bc[i_in])))
+        else:
+            edges.append(abs(bc[i_in]))
+    if not edges:
+        return 0.01
+    half_width = float(np.mean(edges)) * 1.3  # small padding
     return max(half_width, 0.003)
 
 
@@ -737,7 +754,7 @@ def main():
         "n_primary_qc": len(pf_qc),
         "has_secondary": has_secondary,
         "period_alias_caveat": alias_caveat,
-        "pipeline_version": 2,
+        "pipeline_version": 2.2,
         "n_passes": n_passes,
         "converged_shift_min": converged_shift,
         "converged_tolerance_min": tol_min,
