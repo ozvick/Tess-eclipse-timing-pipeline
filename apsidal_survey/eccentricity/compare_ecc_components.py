@@ -10,18 +10,31 @@ Both formulas are first-order in e (edge-on, small e); expect them to degrade ab
 Writes ecc_components.csv and ecc_components.png; prints a summary and the systems where
 Penev's eccentricity rests mainly on e sin w but the durations do not support it.
 """
-import csv, glob, json
+import argparse, csv, glob, json
 from math import pi, sqrt
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+ap = argparse.ArgumentParser()
+ap.add_argument('--widths', help='widths_v22.csv from recompute_widths.py (sub-bin half-widths)')
+ap.add_argument('--floor', type=float, default=None,
+                help='e sin w error floor; default 0.004 with --widths (validated), 0 otherwise')
+args = ap.parse_args()
+FLOOR = args.floor if args.floor is not None else (0.004 if args.widths else 0.0)
+SUFFIX = '_v22' if args.widths else ''
 trig = {int(float(r['tic_id'])): r for r in csv.DictReader(open('tic_etrigwquants.csv'))}
 summ = {}
 for p in glob.glob('rerun_v2/TIC_*_out/TIC*_summary.json'):
     s = json.load(open(p))
     summ[int(s['tic'])] = s
+if args.widths:
+    for r in csv.DictReader(open(args.widths)):
+        if int(r['tic']) in summ:
+            summ[int(r['tic'])]['primary_half_width_phase'] = float(r['hw_p'])
+            summ[int(r['tic'])]['secondary_half_width_phase'] = float(r['hw_s'])
+    print(f'using sub-bin half-widths from {args.widths}; e sin w error floor {FLOOR}')
 
 # width quantization step, estimated from the spacing of all measured half-widths
 ws = np.array(sorted({round(v, 8) for s in summ.values()
@@ -44,7 +57,7 @@ for t, s in summ.items():
     r = wsec / wp
     esw = abs((r - 1) / (r + 1))
     sig_r = r * sqrt((q / sqrt(12) / wsec) ** 2 + (q / sqrt(12) / wp) ** 2)
-    esw_err = 2 / (r + 1) ** 2 * sig_r
+    esw_err = sqrt((2 / (r + 1) ** 2 * sig_r) ** 2 + FLOOR ** 2) if not args.widths else FLOOR
     e_pen = sqrt(pc ** 2 + ps ** 2)
     rows.append(dict(tic=t, P=P, sec_phase=phs, width_ratio=r,
                      abs_ecosw_pipe=ecw, abs_esinw_pipe=esw, abs_esinw_pipe_err=esw_err,
@@ -53,10 +66,10 @@ for t, s in summ.items():
                      depth_ratio=(s.get('secondary_depth') or np.nan) / (s.get('primary_depth') or np.nan)))
 
 rows.sort(key=lambda r: r['P'])
-with open('ecc_components.csv', 'w', newline='') as fh:
+with open(f'ecc_components{SUFFIX}.csv', 'w', newline='') as fh:
     w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
     w.writeheader(); w.writerows(rows)
-print(f"{len(rows)} systems with both pipeline and Penev values -> ecc_components.csv")
+print(f"{len(rows)} systems with both pipeline and Penev values -> ecc_components{SUFFIX}.csv")
 
 A = lambda k: np.array([r[k] for r in rows], dtype=float)
 P, ecp, esp, ese = A('P'), A('abs_ecosw_pipe'), A('abs_esinw_pipe'), A('abs_esinw_pipe_err')
@@ -98,10 +111,11 @@ for a, x, y, lab in ((ax[0], ecn, ecp, '|e cos w|'), (ax[1], esn, esp, '|e sin w
     a.set_xlim(lim); a.set_ylim(lim)
     a.set_xlabel(f'Penev fit {lab}'); a.set_ylabel(f'pipeline (model-free) {lab}')
 ax[0].set_title('timing-based: secondary-eclipse phase'); ax[1].set_title('duration-based: eclipse-width ratio')
-ax[1].axhspan(1e-4, 0.02, color='0.9', zorder=0); ax[1].text(1.2e-4, 0.012, 'below width resolution', fontsize=8)
+res = 2 * FLOOR if args.widths else 0.02
+ax[1].axhspan(1e-4, res, color='0.9', zorder=0); ax[1].text(1.2e-4, res * 0.6, 'below width resolution', fontsize=8)
 ax[2].semilogx(P, ecn, 'o', ms=4, label='|e cos w| (Penev)')
 ax[2].semilogx(P, esn, 's', ms=4, mfc='none', label='|e sin w| (Penev)')
 ax[2].set_xlabel('orbital period (d)'); ax[2].set_ylabel('component'); ax[2].legend(fontsize=8)
 ax[2].set_title("Penev's eccentricity components vs period")
-fig.tight_layout(); fig.savefig('ecc_components.png', dpi=150)
-print('\nsaved ecc_components.png')
+fig.tight_layout(); fig.savefig(f'ecc_components{SUFFIX}.png', dpi=150)
+print(f'\nsaved ecc_components{SUFFIX}.png')
