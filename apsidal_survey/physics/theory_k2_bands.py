@@ -22,6 +22,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--sigR', type=float, default=0.05, help='fractional radius uncertainty (1 sigma)')
 ap.add_argument('--sigM', type=float, default=0.05, help='fractional mass uncertainty (1 sigma)')
 ap.add_argument('--n', type=int, default=400, help='Monte Carlo draws per system')
+ap.add_argument('--obs', default='consistency_modelfree.csv', help='observed-k2 table (consistency_modelfree.csv or consistency_sts.csv)')
+ap.add_argument('--tag', default='', help='suffix for the output files, e.g. _sts')
 args = ap.parse_args()
 rng = np.random.default_rng(3)
 
@@ -94,7 +96,7 @@ for f in ('binary_radii.csv', 'binary_radii_more.csv', 'binary_radii_paul.csv', 
 rows = []
 print(f"radius sigma {args.sigR:.0%}, mass sigma {args.sigM:.0%}, {args.n} draws per system\n")
 print(f"{'TIC':>10} | {'log(obs/theory) [16-84%]':>26} | {'Z=0.004':>7} {'Z=0.013':>7} {'Z=0.042':>7} | {'sig':>5} | note")
-for o in csv.DictReader(open('consistency_modelfree.csv')):
+for o in csv.DictReader(open(args.obs)):
     t = int(o['tic'])
     if t not in par:
         continue
@@ -136,7 +138,7 @@ for o in csv.DictReader(open('consistency_modelfree.csv')):
     print(f"{t:>10} | {q50:+8.2f} [{q16:+.2f}, {q84:+.2f}]{'':>7} | {per_z[0.004237]:+7.2f} {per_z[0.0134]:+7.2f} "
           f"{per_z[0.04237]:+7.2f} | {sig:+5.1f} | {flag}", flush=True)
 
-with open('theory_k2_bands.csv', 'w', newline='') as fh:
+with open(f'theory_k2_bands{args.tag}.csv', 'w', newline='') as fh:
     w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
     w.writeheader(); w.writerows(rows)
 
@@ -167,8 +169,8 @@ ax.axvline(0, color='k', lw=1); ax.axvspan(-0.3, 0.3, color='tab:green', alpha=0
 ax.axvline(mean, color='tab:red', ls='--', lw=1, label=f'weighted mean {mean:+.2f} ± {mean_err:.2f} dex')
 ax.set_yticks(range(len(rows))); ax.set_yticklabels([str(rows[i]['tic']) for i in order], fontsize=8)
 ax.set_xlabel('log$_{10}$(k$_2$ observed / k$_2$ theory)   [bars: 16–84%; grey ticks: metal-poor / metal-rich grids]')
-ax.set_title(f'Observed vs Claret (2023) k$_2$, radius ±{args.sigR:.0%}, mass ±{args.sigM:.0%}\n'
+ax.set_title(f'Observed vs Claret (2023) k$_2$, radius ±{args.sigR:.0%}, mass ±{args.sigM:.0%}  [e from {args.obs}]\n'
              '(orange: e sin ω from edge-on duration formula, likely underestimated)', fontsize=10)
 ax.legend(fontsize=8, loc='lower right')
-fig.tight_layout(); fig.savefig('theory_k2_bands.png', dpi=150)
-print('saved theory_k2_bands.csv and theory_k2_bands.png')
+fig.tight_layout(); fig.savefig(f'theory_k2_bands{args.tag}.png', dpi=150)
+print(f'saved theory_k2_bands{args.tag}.csv and theory_k2_bands{args.tag}.png')
