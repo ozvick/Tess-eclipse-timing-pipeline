@@ -22,6 +22,10 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--source', choices=['phys', 'form'], default='phys')
 ap.add_argument('--sts', default='sts_combined.csv')
 ap.add_argument('--out', default='consistency_sts.csv')
+ap.add_argument('--rotation', choices=['penev', 'sync', 'psync'], default='penev',
+                help="stellar rotation in the apsidal term: Penev's fitted periods (default), synchronous, "
+                     'or pseudo-synchronous (Hut 1981) at the STAR SHADOW eccentricity')
+ap.add_argument('--radii', default=None, help='optional radius file that overrides R1, R2 (e.g. rescaled to STAR SHADOW r_sum)')
 args = ap.parse_args()
 
 GM_SUN, C, R_SUN = 1.32712440018e20, 2.99792458e8, 6.957e8
@@ -35,7 +39,16 @@ for f in ('binary_radii.csv', 'binary_radii_more.csv', 'binary_radii_paul.csv', 
         for r in csv.DictReader(open(f)):
             par[int(float(r['tic']))] = r
 
+if args.radii:
+    for r in csv.DictReader(open(args.radii)):
+        par[int(float(r['tic']))] = r
+
 mf = {int(r['tic']): r for r in csv.DictReader(open('consistency_modelfree.csv'))}
+
+
+def pseudo_sync(e):
+    """Hut (1981) pseudo-synchronous spin rate / mean orbital motion."""
+    return (1 + 7.5 * e**2 + 5.625 * e**4 + 0.3125 * e**6) / ((1 + 3 * e**2 + 0.375 * e**4) * (1 - e**2) ** 1.5)
 
 
 def M_anom(nu, e):
@@ -71,7 +84,7 @@ def implied_k2(S, Se, ecw, esw, ecw_err, esw_err, p, P):
 
 
 rows = []
-print(f"STAR SHADOW e sin w source: {args.source}\n")
+print(f"STAR SHADOW e sin w source: {args.source};  rotation: {args.rotation};  radii: {args.radii or 'Penev'}\n")
 print(f"{'TIC':>10} {'P':>7} | {'e mf':>6} {'k2 (mf)':>8} | {'e STS':>6} {'ecosw':>7} {'esinw':>7} "
       f"{'k2 (STS) [95%]':>26} | note")
 for s in csv.DictReader(open(args.sts)):
@@ -88,6 +101,9 @@ for s in csv.DictReader(open(args.sts)):
     sd = float(s[sd_key]) if s[sd_key] not in ('', 'nan') else np.nan
     esw_err = max(sd / sqrt(n) if np.isfinite(sd) else 0.0, ESW_FLOOR)
     S, Se, P = float(m['drift']), float(m['drift_err']), float(m['P'])
+    if args.rotation != 'penev':
+        p = dict(p)
+        p['prot'] = str(P / (pseudo_sync(hypot(ecw, esw)) if args.rotation == 'psync' else 1.0))
     k = implied_k2(S, Se, ecw, esw, ecw_err, esw_err, p, P)
     e = hypot(ecw, esw)
     notes = []
@@ -99,7 +115,7 @@ for s in csv.DictReader(open(args.sts)):
         notes.append('slower than GR')
     elif 0.001 <= k[1] <= 0.05:
         notes.append('normal k2')
-    notes.append(f'STAR SHADOW {args.source}, {n} cycles')
+    notes.append(f'STAR SHADOW {args.source}, {n} cycles, rotation {args.rotation}')
     rows.append(dict(tic=t, P=P, drift=S, drift_err=Se, e_penev=m['e_penev'], k2_penev=m['k2_penev'],
                      ecosw_mf=ecw, esinw_mf=esw, e_mf=e, k2_mf_lo=k[0], k2_mf=k[1], k2_mf_hi=k[2],
                      notes='; '.join(notes)))
